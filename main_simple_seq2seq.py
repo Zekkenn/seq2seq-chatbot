@@ -127,23 +127,25 @@ def model(encode_seqs, decode_seqs, is_train=True, reuse=False):
     return net_out, net_rnn
 
 # Training Model
-encode_seqs = tf.placeholder(dtype=tf.int64, shape=[batch_size, None], name="encode_seqs")
-decode_seqs = tf.placeholder(dtype=tf.int64, shape=[batch_size, None], name="decode_seqs")
+encode_seqs1 = tf.placeholder(dtype=tf.int64, shape=[batch_size, None], name="encode_seqs1")
+decode_seqs1 = tf.placeholder(dtype=tf.int64, shape=[batch_size, None], name="decode_seqs1")
 target_seqs = tf.placeholder(dtype=tf.int64, shape=[batch_size, None], name="target_seqs")
 target_mask = tf.placeholder(dtype=tf.int64, shape=[batch_size, None], name="target_mask") 
 
-net_out, _ = model(encode_seqs, decode_seqs, is_train=True, reuse=False)
+net_out, _ = model(encode_seqs1, decode_seqs1, is_train=True, reuse=False)
 
 # Inference Model
-encode_seqs2 = tf.placeholder(dtype=tf.int64, shape=[1, None], name="encode_seqs")
-decode_seqs2 = tf.placeholder(dtype=tf.int64, shape=[1, None], name="decode_seqs")
+encode_seqs2 = tf.placeholder(dtype=tf.int64, shape=[1, None], name="encode_seqs2")
+decode_seqs2 = tf.placeholder(dtype=tf.int64, shape=[1, None], name="decode_seqs2")
 
 net, net_rnn = model(encode_seqs2, decode_seqs2, is_train=False, reuse=True)
 y = tf.nn.softmax(net.outputs)
+summary1 = tf.summary.histogram("softmax_function", y)
 
 # Loss Function
 loss = tl.cost.cross_entropy_seq_with_mask(logits=net_out.outputs, target_seqs=target_seqs, 
     input_mask=target_mask, return_details=False, name='cost')
+summary2 = tf.summary.histogram("loss_function", loss)
 
 net_out.print_params(False)
 
@@ -153,7 +155,13 @@ train_op = tf.train.AdamOptimizer(learning_rate=lr).minimize(loss)
 
 # Init Session
 sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False))
+train_writer = tf.summary.FileWriter( './logs/1/train.txt', sess.graph)
 sess.run(tf.global_variables_initializer())
+
+merged = tf.summary.merge([summary2])
+
+print(merged)
+tf.Print(merged, [merged], message = "Hola: :v  ")
 
 tl.files.load_and_assign_npz(sess=sess, name='n.npz', network=net)
 
@@ -167,7 +175,7 @@ for epoch in range(n_epoch):
     epoch_time = time.time()
 
     for X, Y in tl.iterate.minibatches(inputs=trainX, targets=trainY, batch_size=batch_size, shuffle=False):
-
+        
         step_time = time.time()
 
         X = tl.prepro.pad_sequences(X)
@@ -187,20 +195,23 @@ for epoch in range(n_epoch):
         #     print(i, _target_mask[i])
         #     print(len(_target_seqs[i]), len(_decode_seqs[i]), len(_target_mask[i]))
         # exit()
-
-        _, err = sess.run([train_op, loss],
-                        {encode_seqs: X,
-                        decode_seqs: _decode_seqs,
+                        
+        summary, _, err = sess.run([merged, train_op, loss],
+                        {encode_seqs1: X,
+                        decode_seqs1: _decode_seqs,
                         target_seqs: _target_seqs,
                         target_mask: _target_mask})
+
+        train_writer.add_summary(summary, n_iter)
 
         if n_iter % 200 == 0:
             print("Epoch[%d/%d] step:[%d/%d] loss:%f took:%.5fs" % (epoch, n_epoch, n_iter, n_step, err, time.time() - step_time))
 
         total_err += err; n_iter += 1
+        tf.reset_default_graph()
 
         # Inference
-        if n_iter % 1000 == 0:
+        if n_iter % 20 == 0:
             seeds = ["happy birthday have a nice day",
                     "donald trump won last nights presidential debate according to snap online polls"]
             for seed in seeds:
